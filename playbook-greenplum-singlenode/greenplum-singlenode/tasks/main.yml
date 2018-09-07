@@ -1,0 +1,110 @@
+---
+
+- name: upgrade software
+  become: yes
+  apt:
+    upgrade: yes
+    update_cache: yes
+
+- name: install software-properties-common
+  become: yes
+  apt:
+    name: software-properties-common
+
+- name: add greenplum ppa
+  become: yes
+  apt_repository:
+    repo: ppa:greenplum/db
+
+- name: install greenplum oss
+  become: yes
+  apt:
+    name: greenplum-db-oss
+    update_cache: yes
+
+- name: ensure "gpadmin" group exists
+  become: yes
+  group:
+    name: gpadmin
+    state: present
+
+- name: ensure "gpadmin" user exists
+  become: yes
+  user:
+    name: gpadmin
+    comment: Greenplum admin user
+    createhome: yes
+    shell: /bin/bash
+    groups: gpadmin
+    append: yes
+
+- name: disable removing IPC for logged out users
+  become: yes
+  lineinfile:
+    path: /etc/systemd/logind.conf
+    regexp: '^RemoveIPC='
+    line: RemoveIPC=no
+  notify:
+    - restart systemd-logind
+
+# Greenplum initialization
+
+- name: set hostname in hostlist
+  become: yes
+  copy:
+    dest: ~gpadmin/hostlist_singlenode
+    content: "{{ ansible_hostname }}"
+    owner: gpadmin
+    group: gpadmin
+    mode: 0644
+
+- name: install gpinitsystem config
+  become: yes
+  template:
+    src: gpinitsystem_singlenode.j2
+    dest: ~gpadmin/gpinitsystem_singlenode
+    owner: gpadmin
+    group: gpadmin
+    mode: 0644
+
+- name: check if ssh login for gpadmin is setup
+  become: yes
+  become_user: gpadmin
+  stat:
+    path: ~gpadmin/.ssh/known_hosts
+  register: known_hosts
+
+#- name: exchange ssh keys
+#  become_user: gpadmin
+#  shell: ( . /opt/gpdb/greenplum_path.sh && gpssh-exkeys -f ~gpadmin/hostlist_singlenode )
+#  args:
+#    chdir: ~gpadmin
+#  when: known_hosts.stat.exists != true
+
+- name: check if greenplum is already initialized
+  stat:
+    path: ~gpadmin/data
+  register: greenplum_initialized
+
+- name: create data directories
+  become: yes
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: gpadmin
+    group: gpadmin
+    mode: 0755
+  with_items:
+    - ~gpadmin/data
+    - ~gpadmin/data/master
+    - ~gpadmin/data/seg0
+    - ~gpadmin/data/seg1
+  when: greenplum_initialized.stat.exists != true
+
+#- name: initialize Grenplum database cluster
+#  become: yes
+#  become_user: gpadmin
+#  shell: ( . /opt/gpdb/greenplum_path.sh && gpinitsystem -a -c ~gpadmin/gpinitsystem_singlenode )
+#  args:
+#    chdir: ~gpadmin
+#  when: greenplum_initialized.stat.exists != true
