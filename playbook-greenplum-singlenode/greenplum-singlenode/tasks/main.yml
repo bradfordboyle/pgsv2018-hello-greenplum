@@ -47,6 +47,8 @@
   notify:
     - restart systemd-logind
 
+- meta: flush_handlers
+
 # Greenplum initialization
 
 - name: set hostname in hostlist
@@ -67,6 +69,15 @@
     group: gpadmin
     mode: 0644
 
+- name: copy over world database
+  become: yes
+  template:
+    src: world.sql.j2
+    dest: ~gpadmin/world.sql
+    owner: gpadmin
+    group: gpadmin
+    mode: 0644
+
 - name: check if ssh login for gpadmin is setup
   become: yes
   become_user: gpadmin
@@ -74,12 +85,13 @@
     path: ~gpadmin/.ssh/known_hosts
   register: known_hosts
 
-#- name: exchange ssh keys
-#  become_user: gpadmin
-#  shell: ( . /opt/gpdb/greenplum_path.sh && gpssh-exkeys -f ~gpadmin/hostlist_singlenode )
-#  args:
-#    chdir: ~gpadmin
-#  when: known_hosts.stat.exists != true
+- name: exchange ssh keys
+  become: yes
+  become_user: gpadmin
+  shell: ( . /opt/gpdb/greenplum_path.sh && gpssh-exkeys -f ~gpadmin/hostlist_singlenode )
+  args:
+    chdir: ~gpadmin
+  when: known_hosts.stat.exists != true
 
 - name: check if greenplum is already initialized
   stat:
@@ -101,10 +113,12 @@
     - ~gpadmin/data/seg1
   when: greenplum_initialized.stat.exists != true
 
-#- name: initialize Grenplum database cluster
-#  become: yes
-#  become_user: gpadmin
-#  shell: ( . /opt/gpdb/greenplum_path.sh && gpinitsystem -a -c ~gpadmin/gpinitsystem_singlenode )
-#  args:
-#    chdir: ~gpadmin
-#  when: greenplum_initialized.stat.exists != true
+- name: initialize Grenplum database cluster
+  become: yes
+  become_user: gpadmin
+  shell: ( . /opt/gpdb/greenplum_path.sh && gpinitsystem -a -c ~gpadmin/gpinitsystem_singlenode )
+  args:
+    chdir: ~gpadmin
+  register: init_db
+  when: greenplum_initialized.stat.exists != true
+  failed_when: init_db.rc > 1
